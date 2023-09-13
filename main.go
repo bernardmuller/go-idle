@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/joho/godotenv"
 	"github.com/julienschmidt/httprouter"
 	"golang.org/x/crypto/bcrypt"
@@ -31,10 +32,31 @@ type RegisterDTO struct {
 	Name     string `json:"name"`
 }
 
+type LoginDTO struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type SuccessResponse[T any] struct {
+	StatusCode int `json:"status"`
+	Data       T   `json:"data"`
+}
+
 type ErrorResponse struct {
 	StatusCode   int    `json:"status"`
 	ErrorMessage string `json:"message"`
 }
+
+type Claims struct {
+	Username string `json:"username"`
+	jwt.RegisteredClaims
+}
+
+type Token struct {
+	Token string `json:"token"`
+}
+
+var JWT_KEY = []byte("my_secret_key")
 
 func setupEnv() {
 	err := godotenv.Load(".env")
@@ -100,6 +122,66 @@ func Register(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	json.NewEncoder(w).Encode(new_user)
 }
 
+func Login(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	dto := LoginDTO{}
+	json.NewDecoder(r.Body).Decode(&dto)
+	if dto.Email == "" || dto.Password == "" {
+		error := ErrorResponse{
+			StatusCode:   http.StatusBadRequest,
+			ErrorMessage: "Invalid request payload",
+		}
+		json.NewEncoder(w).Encode(error)
+		return
+	}
+
+	var user User
+	db.Where("email = ?", dto.Email).First(&user)
+	if &user == nil {
+		error := ErrorResponse{
+			StatusCode:   http.StatusUnauthorized,
+			ErrorMessage: "Invalid credentials",
+		}
+		json.NewEncoder(w).Encode(error)
+		return
+	}
+
+	valid_password := CheckPasswordHash(dto.Password, user.Password)
+	if !valid_password {
+		error := ErrorResponse{
+			StatusCode:   http.StatusUnauthorized,
+			ErrorMessage: "Invalid credentials",
+		}
+		json.NewEncoder(w).Encode(error)
+		return
+	}
+
+	expirationTime := time.Now().Add(5 * time.Minute)
+
+	claims := &Claims{
+		Username: user.Name,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(expirationTime),
+		},
+	}
+
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	tokenString, err := token.SignedString(JWT_KEY)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	login_response := SuccessResponse[Token]{
+		StatusCode: http.StatusOK,
+		Data: Token{
+			Token: tokenString,
+		},
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	json.NewEncoder(w).Encode(login_response)
+}
+
 func getUsers(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
 	var users []User
 	db.Find(&users)
@@ -151,6 +233,7 @@ func main() {
 
 	router.GET("/user", logging(Index))
 	router.POST("/register", Register)
+	router.POST("/login", Login)
 	router.GET("/users", getUsers)
 	router.DELETE("/users/:id", deleteUser)
 
