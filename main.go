@@ -51,6 +51,22 @@ func logging(f httprouter.Handle) httprouter.Handle {
 	}
 }
 
+func authenticate(f httprouter.Handle) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		request_token := r.Header.Get("Authorization")
+		if request_token == "" {
+			error := ErrorResponse{
+				StatusCode:   http.StatusUnauthorized,
+				ErrorMessage: "Unauthorized",
+			}
+			json.NewEncoder(w).Encode(error)
+			return
+		}
+
+		f(w, r, p)
+	}
+}
+
 // Handlers
 func Index(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
 	user := User{}
