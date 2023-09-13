@@ -18,12 +18,25 @@ import (
 var db *gorm.DB
 
 type User struct {
+	gorm.Model
 	ID        uint    `gorm:"primaryKey" json:"id"`
 	Name      string  `                  json:"name"`
 	Email     *string `gorm:"unique"     json:"email"`
 	Password  string  `                  json:"password"`
+	role      Role
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type Role struct {
+	ID          uint   `gorm:"primaryKey" json:"id"`
+	Name        string `                  json:"name"`
+	Permissions []Permission
+}
+
+type Permission struct {
+	ID   uint   `gorm:"primaryKey" json:"id"`
+	Name string `                  json:"name"`
 }
 
 type RegisterDTO struct {
