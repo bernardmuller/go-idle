@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"text/template"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -89,6 +91,26 @@ func logging(f httprouter.Handle) httprouter.Handle {
 func authenticate(f httprouter.Handle) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
 		request_token := r.Header.Get("Authorization")
+		if request_token == "" {
+			error := ErrorResponse{
+				StatusCode:   http.StatusUnauthorized,
+				ErrorMessage: "Unauthorized",
+			}
+			json.NewEncoder(w).Encode(error)
+			return
+		}
+
+		f(w, r, p)
+	}
+}
+
+func authenticate_cookie(f httprouter.Handle) httprouter.Handle {
+	return func(w http.ResponseWriter, r *http.Request, p httprouter.Params) {
+		cookie, err := r.Cookie("token")
+		if err != nil {
+			fmt.Println(err)
+		}
+		request_token := cookie.Value
 		if request_token == "" {
 			error := ErrorResponse{
 				StatusCode:   http.StatusUnauthorized,
@@ -191,8 +213,23 @@ func Login(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		},
 	}
 
-	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
-	json.NewEncoder(w).Encode(login_response)
+	// w.Header().Set("Content-Type", "application/json; charset=UTF-8")
+	// json.NewEncoder(w).Encode(login_response)
+
+	tmplStr := "<div id=\"logged-in\" hx-get=\"/protected\" hx-trigger=\"mouseenter\">Logged in</div>"
+	t, err := template.New("message").Parse(tmplStr)
+	if err != nil {
+		panic(err)
+	}
+	// w.Header().Set("Content-Type", "text/html; charset=UTF-8")
+	// w.Header().Add("Set-Cookie", tokenString)
+	cookie := http.Cookie{
+		Name:  "token",
+		Value: tokenString,
+	}
+
+	http.SetCookie(w, &cookie)
+	t.ExecuteTemplate(w, "message", login_response)
 }
 
 func getUsers(w http.ResponseWriter, _ *http.Request, _ httprouter.Params) {
@@ -211,6 +248,10 @@ func deleteUser(w http.ResponseWriter, _ *http.Request, p httprouter.Params) {
 	db.Find(&users)
 	w.Header().Set("Content-Type", "application/json; charset=UTF-8")
 	json.NewEncoder(w).Encode(users)
+}
+
+func serveLogin(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	http.ServeFile(w, r, "login.html")
 }
 
 // Utils
@@ -249,6 +290,8 @@ func main() {
 	router.POST("/login", Login)
 	router.GET("/users", getUsers)
 	router.DELETE("/users/:id", deleteUser)
+	router.GET("/login", serveLogin)
+	router.GET("/protected", authenticate_cookie(Index))
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }
